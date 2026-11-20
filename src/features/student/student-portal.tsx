@@ -687,12 +687,6 @@ function StudentDashboard() {
           </div>
         )}
       </section>
-      <p className="mt-8 text-center text-xs text-muted">
-        Need to sign in as campus staff?{" "}
-        <Link className="font-semibold text-brand hover:underline" href="/admin/login">
-          Administrator sign in
-        </Link>
-      </p>
     </PortalShell>
   );
 }

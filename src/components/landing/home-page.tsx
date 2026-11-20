@@ -90,7 +90,7 @@ export function HomePage() {
   return (
     <div id="top" className="min-h-screen overflow-hidden bg-white text-ink">
       <header className="sticky top-0 z-30 border-b border-slate-200/70 bg-white/90 backdrop-blur-xl">
-        <div className="mx-auto flex h-[76px] max-w-7xl items-center justify-between px-5 sm:px-8">
+        <div className="mx-auto flex min-h-[76px] max-w-7xl flex-wrap items-center justify-between gap-y-3 px-5 py-3 sm:px-8">
           <BrandMark />
           <nav
             aria-label="Main navigation"
@@ -106,12 +106,19 @@ export function HomePage() {
               For campus teams
             </a>
           </nav>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
             <Link
               className="text-sm font-semibold text-slate-600 transition hover:text-brand"
               href="/login"
             >
               Sign in
+            </Link>
+            <Link
+              className="rounded-full border border-line px-3 py-2 text-xs font-semibold text-ink transition hover:border-brand hover:text-brand sm:text-sm"
+              href="/admin/login"
+            >
+              <span className="sm:hidden">Admin</span>
+              <span className="hidden sm:inline">Admin sign in</span>
             </Link>
             <Link
               href="/register"
@@ -442,12 +449,6 @@ export function HomePage() {
             Back to top
             <Icon name="arrow-up-right" size={14} />
           </a>
-          <Link
-            className="text-xs font-semibold text-slate-500 transition hover:text-brand"
-            href="/admin/login"
-          >
-            Administrator sign in
-          </Link>
         </div>
       </footer>
     </div>
