@@ -1,0 +1,290 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  STUDENT
+  ADMIN
+  SUPER_ADMIN
+
+  @@map("user_role")
+}
+
+enum AccountStatus {
+  ACTIVE
+  SUSPENDED
+  DEACTIVATED
+
+  @@map("account_status")
+}
+
+enum ComplaintStatus {
+  SUBMITTED
+  TRIAGED
+  IN_PROGRESS
+  WAITING_FOR_STUDENT
+  RESOLVED
+  CLOSED
+  REOPENED
+  REJECTED
+
+  @@map("complaint_status")
+}
+
+enum IntakeSessionStatus {
+  ACTIVE
+  SUBMITTED
+  ABANDONED
+  EXPIRED
+
+  @@map("intake_session_status")
+}
+
+enum ConversationSpeaker {
+  STUDENT
+  ASSISTANT
+  SYSTEM
+
+  @@map("conversation_speaker")
+}
+
+enum Severity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+
+  @@map("severity")
+}
+
+enum Urgency {
+  ROUTINE
+  SOON
+  URGENT
+  IMMEDIATE
+
+  @@map("urgency")
+}
+
+enum AiReviewStatus {
+  PENDING
+  ACCEPTED
+  CORRECTED
+  REJECTED
+
+  @@map("ai_review_status")
+}
+
+model UserProfile {
+  id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email         String        @unique @db.VarChar(320)
+  displayName   String?       @map("display_name") @db.VarChar(150)
+  role          UserRole      @default(STUDENT)
+  accountStatus AccountStatus @default(ACTIVE) @map("account_status")
+  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  disabledAt    DateTime?     @map("disabled_at") @db.Timestamptz(6)
+
+  complaints          Complaint[]              @relation("ComplaintOwner")
+  triagedComplaints   Complaint[]              @relation("ComplaintTriager")
+  intakeSessions      AiIntakeSession[]        @relation("IntakeOwner")
+  statusChanges       ComplaintStatusHistory[] @relation("StatusActor")
+  responses           StudentResponse[]        @relation("ResponseAuthor")
+  assessmentsReviewed AiAssessment[]           @relation("AssessmentReviewer")
+  auditLogs           AuditLog[]               @relation("AuditActor")
+
+  @@map("user_profiles")
+}
+
+model Department {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String   @unique @db.VarChar(160)
+  slug        String   @unique @db.VarChar(100)
+  description String?  @db.Text
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  categories ComplaintCategory[]
+
+  @@map("departments")
+}
+
+model ComplaintCategory {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  departmentId String?  @map("department_id") @db.Uuid
+  name         String   @db.VarChar(140)
+  slug         String   @unique @db.VarChar(100)
+  description  String?  @db.Text
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  department      Department?    @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  complaints      Complaint[]    @relation("ComplaintCategory")
+  recommendations AiAssessment[] @relation("RecommendedCategory")
+  corrections     AiAssessment[] @relation("CorrectedCategory")
+
+  @@index([departmentId, isActive])
+  @@map("complaint_categories")
+}
+
+model Complaint {
+  id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  studentId       String          @map("student_id") @db.Uuid
+  intakeSessionId String?         @unique @map("intake_session_id") @db.Uuid
+  title           String          @db.VarChar(200)
+  description     String          @db.Text
+  status          ComplaintStatus @default(SUBMITTED)
+  isAnonymous     Boolean         @default(false) @map("is_anonymous")
+  categoryId      String?         @map("category_id") @db.Uuid
+  severity        Severity?
+  urgency         Urgency?
+  triagedById     String?         @map("triaged_by_id") @db.Uuid
+  triagedAt       DateTime?       @map("triaged_at") @db.Timestamptz(6)
+  submittedAt     DateTime        @default(now()) @map("submitted_at") @db.Timestamptz(6)
+  resolvedAt      DateTime?       @map("resolved_at") @db.Timestamptz(6)
+  closedAt        DateTime?       @map("closed_at") @db.Timestamptz(6)
+  archivedAt      DateTime?       @map("archived_at") @db.Timestamptz(6)
+  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  student       UserProfile              @relation("ComplaintOwner", fields: [studentId], references: [id], onDelete: Restrict)
+  intakeSession AiIntakeSession?         @relation("ComplaintIntake", fields: [intakeSessionId], references: [id], onDelete: Restrict)
+  category      ComplaintCategory?       @relation("ComplaintCategory", fields: [categoryId], references: [id], onDelete: Restrict)
+  triagedBy     UserProfile?             @relation("ComplaintTriager", fields: [triagedById], references: [id], onDelete: SetNull)
+  statusHistory ComplaintStatusHistory[]
+  aiAssessments AiAssessment[]
+  responses     StudentResponse[]
+  auditLogs     AuditLog[]
+
+  @@index([studentId, createdAt])
+  @@index([status, createdAt])
+  @@index([categoryId, status])
+  @@index([severity, urgency, status])
+  @@map("complaints")
+}
+
+model ComplaintStatusHistory {
+  id               String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  complaintId      String           @map("complaint_id") @db.Uuid
+  fromStatus       ComplaintStatus? @map("from_status")
+  toStatus         ComplaintStatus  @map("to_status")
+  changedById      String?          @map("changed_by_id") @db.Uuid
+  visibleToStudent Boolean          @default(true) @map("visible_to_student")
+  createdAt        DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  complaint Complaint    @relation(fields: [complaintId], references: [id], onDelete: Restrict)
+  changedBy UserProfile? @relation("StatusActor", fields: [changedById], references: [id], onDelete: SetNull)
+
+  @@index([complaintId, createdAt])
+  @@index([changedById, createdAt])
+  @@map("complaint_status_history")
+}
+
+model AiIntakeSession {
+  id             String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  studentId      String              @map("student_id") @db.Uuid
+  status         IntakeSessionStatus @default(ACTIVE)
+  modelName      String?             @map("model_name") @db.VarChar(160)
+  startedAt      DateTime            @default(now()) @map("started_at") @db.Timestamptz(6)
+  lastActivityAt DateTime            @default(now()) @map("last_activity_at") @db.Timestamptz(6)
+  endedAt        DateTime?           @map("ended_at") @db.Timestamptz(6)
+  createdAt      DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  student   UserProfile           @relation("IntakeOwner", fields: [studentId], references: [id], onDelete: Restrict)
+  messages  ConversationMessage[]
+  complaint Complaint?            @relation("ComplaintIntake")
+
+  @@index([studentId, status, lastActivityAt])
+  @@map("ai_intake_sessions")
+}
+
+model ConversationMessage {
+  id         String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sessionId  String              @map("session_id") @db.Uuid
+  speaker    ConversationSpeaker
+  content    String              @db.Text
+  metadata   Json?
+  redactedAt DateTime?           @map("redacted_at") @db.Timestamptz(6)
+  createdAt  DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  session AiIntakeSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+  @@map("conversation_messages")
+}
+
+model AiAssessment {
+  id                    String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  complaintId           String         @map("complaint_id") @db.Uuid
+  modelProvider         String         @map("model_provider") @db.VarChar(80)
+  modelName             String         @map("model_name") @db.VarChar(160)
+  modelVersion          String?        @map("model_version") @db.VarChar(100)
+  promptVersion         String?        @map("prompt_version") @db.VarChar(100)
+  recommendedCategoryId String?        @map("recommended_category_id") @db.Uuid
+  recommendedSeverity   Severity?      @map("recommended_severity")
+  recommendedUrgency    Urgency?       @map("recommended_urgency")
+  confidence            Decimal?       @db.Decimal(5, 4)
+  summary               String?        @db.Text
+  rationale             String?        @db.Text
+  reviewStatus          AiReviewStatus @default(PENDING) @map("review_status")
+  correctedCategoryId   String?        @map("corrected_category_id") @db.Uuid
+  correctedSeverity     Severity?      @map("corrected_severity")
+  correctedUrgency      Urgency?       @map("corrected_urgency")
+  reviewedById          String?        @map("reviewed_by_id") @db.Uuid
+  reviewedAt            DateTime?      @map("reviewed_at") @db.Timestamptz(6)
+  reviewerNote          String?        @map("reviewer_note") @db.Text
+  createdAt             DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  complaint           Complaint          @relation(fields: [complaintId], references: [id], onDelete: Restrict)
+  recommendedCategory ComplaintCategory? @relation("RecommendedCategory", fields: [recommendedCategoryId], references: [id], onDelete: SetNull)
+  correctedCategory   ComplaintCategory? @relation("CorrectedCategory", fields: [correctedCategoryId], references: [id], onDelete: SetNull)
+  reviewedBy          UserProfile?       @relation("AssessmentReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([complaintId, createdAt])
+  @@index([reviewStatus, createdAt])
+  @@index([recommendedCategoryId])
+  @@map("ai_assessments")
+}
+
+model StudentResponse {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  complaintId String    @map("complaint_id") @db.Uuid
+  authorId    String    @map("author_id") @db.Uuid
+  body        String    @db.Text
+  editedAt    DateTime? @map("edited_at") @db.Timestamptz(6)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  complaint Complaint   @relation(fields: [complaintId], references: [id], onDelete: Restrict)
+  author    UserProfile @relation("ResponseAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+
+  @@index([complaintId, createdAt])
+  @@index([authorId, createdAt])
+  @@map("student_responses")
+}
+
+model AuditLog {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  actorId     String?  @map("actor_id") @db.Uuid
+  complaintId String?  @map("complaint_id") @db.Uuid
+  entityType  String   @map("entity_type") @db.VarChar(100)
+  entityId    String   @map("entity_id") @db.Uuid
+  action      String   @db.VarChar(100)
+  metadata    Json?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  actor     UserProfile? @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  complaint Complaint?   @relation(fields: [complaintId], references: [id], onDelete: SetNull)
+
+  @@index([actorId, createdAt])
+  @@index([entityType, entityId, createdAt])
+  @@index([complaintId, createdAt])
+  @@map("audit_logs")
+}

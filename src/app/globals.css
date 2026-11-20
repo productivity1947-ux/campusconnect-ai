@@ -1,0 +1,135 @@
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans: "Segoe UI", Arial, Helvetica, sans-serif;
+  --font-mono: "Cascadia Code", Consolas, monospace;
+  --color-ink: #15233b;
+  --color-muted: #637087;
+  --color-brand: #3868e8;
+  --color-brand-dark: #244ec4;
+  --color-brand-soft: #edf2ff;
+  --color-canvas: #f8faff;
+  --color-line: #e6eaf2;
+}
+
+:root {
+  color-scheme: light;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 5.5rem;
+}
+
+body {
+  margin: 0;
+  background: #fff;
+  color: #15233b;
+  font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+}
+
+::selection {
+  background: #dce7ff;
+  color: #15233b;
+}
+
+.hero-grid {
+  background-image:
+    linear-gradient(rgba(67, 93, 143, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(67, 93, 143, 0.045) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse at 64% 38%, #000 0%, transparent 72%);
+}
+
+.float-gently {
+  animation: float-gently 7s ease-in-out infinite;
+}
+
+.form-input {
+  display: block;
+  width: 100%;
+  min-height: 2.75rem;
+  border: 1px solid #dfe5ef;
+  border-radius: 0.75rem;
+  background: #fff;
+  padding: 0.65rem 0.85rem;
+  color: #15233b;
+  outline: none;
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.form-input:focus {
+  border-color: #3868e8;
+  box-shadow: 0 0 0 3px rgb(56 104 232 / 12%);
+}
+
+.button-primary,
+.button-secondary {
+  display: inline-flex;
+  min-height: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.75rem;
+  padding: 0.7rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease;
+}
+
+.button-primary {
+  background: #3868e8;
+  color: #fff;
+}
+
+.button-primary:hover {
+  background: #244ec4;
+}
+
+.button-secondary {
+  border: 1px solid #dfe5ef;
+  background: #fff;
+  color: #263650;
+}
+
+.button-secondary:hover {
+  border-color: #bdc9dc;
+  background: #f8faff;
+}
+
+.button-primary:disabled,
+.button-secondary:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+@keyframes float-gently {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
