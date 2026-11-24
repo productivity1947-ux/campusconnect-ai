@@ -14,11 +14,43 @@ export function PortalGuard({
   children: ReactNode;
 }) {
   const router = useRouter();
-  const { session, profile, ready, profileError, refreshProfile } = useAuth();
+  const {
+    session,
+    profile,
+    ready,
+    authError,
+    profileError,
+    refreshProfile,
+    retryAuth,
+  } = useAuth();
 
   useEffect(() => {
     if (ready && !session) router.replace(role === "admin" ? "/admin/login" : "/login");
   }, [ready, role, router, session]);
+
+  if (authError) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-canvas px-5">
+        <section
+          aria-live="polite"
+          className="max-w-md rounded-2xl border border-line bg-white p-6 text-center"
+          role="alert"
+        >
+          <h1 className="text-lg font-semibold text-ink">
+            Could not check your session
+          </h1>
+          <p className="mt-2 text-sm leading-6 text-muted">{authError}</p>
+          <button
+            className="button-primary mt-5"
+            onClick={retryAuth}
+            type="button"
+          >
+            Retry session check
+          </button>
+        </section>
+      </main>
+    );
+  }
 
   if (!ready) {
     return (

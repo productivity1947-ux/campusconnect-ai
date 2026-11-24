@@ -24,8 +24,10 @@ type AuthContextValue = {
   session: Session | null;
   profile: SignedInProfile | null;
   ready: boolean;
+  authError: string | null;
   profileError: string | null;
   refreshProfile: (token?: string) => Promise<SignedInProfile | null>;
+  retryAuth: () => void;
   signOut: () => Promise<void>;
 };
 
@@ -35,9 +37,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<SignedInProfile | null>(null);
   const [authReady, setAuthReady] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [profileRefreshKey, setProfileRefreshKey] = useState(0);
+  const [authRetryKey, setAuthRetryKey] = useState(0);
   const profileRequestId = useRef(0);
   const profileAbortController = useRef<AbortController | null>(null);
   const profileRequest = useRef<{
@@ -72,6 +76,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const requestId = ++profileRequestId.current;
       setProfileLoading(true);
       setProfileError(null);
+      const timeoutId = window.setTimeout(() => controller.abort(), 15000);
       const promise = (async () => {
         try {
           const response = await fetch("/api/me", {
@@ -100,6 +105,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setProfileError("Could not reach CampusConnect. Check your connection.");
           return null;
         } finally {
+          window.clearTimeout(timeoutId);
           if (requestId === profileRequestId.current) {
             profileAbortController.current = null;
             profileRequest.current = null;
@@ -117,10 +123,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const supabase = getSupabaseBrowserClient();
     let active = true;
     let authEventVersion = 0;
+    const sessionTimeoutId: { current?: number } = {};
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       authEventVersion += 1;
+      setAuthError(null);
+      setAuthReady(true);
+      if (sessionTimeoutId.current !== undefined) {
+        window.clearTimeout(sessionTimeoutId.current);
+      }
       const currentUserId = sessionRef.current?.user.id;
       const nextUserId = nextSession?.user.id;
       if (currentUserId && currentUserId === nextUserId) {
@@ -152,31 +164,67 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     const initialAuthEventVersion = authEventVersion;
-    void supabase.auth.getSession().then(({ data, error }) => {
-      if (
-        active &&
-        !error &&
-        authEventVersion === initialAuthEventVersion
-      ) {
+    sessionTimeoutId.current = window.setTimeout(() => {
+      if (active && authEventVersion === initialAuthEventVersion) {
+        setAuthError(
+          "We could not confirm your saved session. Check your connection and try again.",
+        );
+      }
+    }, 12000);
+    void supabase.auth
+      .getSession()
+      .then(({ data, error }) => {
+        if (!active || authEventVersion !== initialAuthEventVersion) return;
+        if (error) {
+          setAuthError(
+            "We could not confirm your saved session. Check your connection and try again.",
+          );
+          return;
+        }
         profileRequestId.current += 1;
         profileAbortController.current?.abort();
         profileAbortController.current = null;
         profileRequest.current = null;
         sessionRef.current = data.session;
         setSession(data.session);
-        setProfileLoading(Boolean(data.session));
-      }
-      if (active) setAuthReady(true);
-    });
+        setProfileLoading(
+          Boolean(
+            data.session && profileRef.current?.id !== data.session.user.id,
+          ),
+        );
+        setAuthError(null);
+        setAuthReady(true);
+      })
+      .catch(() => {
+        if (active && authEventVersion === initialAuthEventVersion) {
+          setAuthError(
+            "We could not confirm your saved session. Check your connection and try again.",
+          );
+        }
+      })
+      .finally(() => {
+        if (sessionTimeoutId.current !== undefined) {
+          window.clearTimeout(sessionTimeoutId.current);
+        }
+      });
 
     return () => {
       active = false;
+      if (sessionTimeoutId.current !== undefined) {
+        window.clearTimeout(sessionTimeoutId.current);
+      }
       profileRequestId.current += 1;
       profileAbortController.current?.abort();
       profileAbortController.current = null;
       profileRequest.current = null;
       subscription.unsubscribe();
     };
+  }, [authRetryKey]);
+
+  const retryAuth = useCallback(() => {
+    setAuthError(null);
+    setAuthReady(false);
+    setAuthRetryKey((current) => current + 1);
   }, []);
 
   useEffect(() => {
@@ -209,16 +257,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       session,
       profile,
       ready: authReady && !profileLoading,
+      authError,
       profileError,
       refreshProfile,
+      retryAuth,
       signOut,
     }),
     [
       authReady,
+      authError,
       profile,
       profileError,
       profileLoading,
       refreshProfile,
+      retryAuth,
       session,
       signOut,
     ],
