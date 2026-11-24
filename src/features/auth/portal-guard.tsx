@@ -14,7 +14,7 @@ export function PortalGuard({
   children: ReactNode;
 }) {
   const router = useRouter();
-  const { session, profile, ready, profileError } = useAuth();
+  const { session, profile, ready, profileError, refreshProfile } = useAuth();
 
   useEffect(() => {
     if (ready && !session) router.replace(role === "admin" ? "/admin/login" : "/login");
@@ -44,7 +44,16 @@ export function PortalGuard({
           <p className="mt-2 text-sm leading-6 text-muted">
             {profileError ?? "Your account profile could not be loaded."}
           </p>
-          <div className="mt-5 flex justify-center"><LogoutButton /></div>
+          <div className="mt-5 flex flex-wrap justify-center gap-3">
+            <button
+              className="button-primary"
+              onClick={() => void refreshProfile()}
+              type="button"
+            >
+              Try again
+            </button>
+            <LogoutButton />
+          </div>
         </section>
       </main>
     );

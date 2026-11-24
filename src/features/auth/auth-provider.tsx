@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -36,67 +37,134 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [authReady, setAuthReady] = useState(false);
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
+  const [profileRefreshKey, setProfileRefreshKey] = useState(0);
+  const profileRequestId = useRef(0);
+  const profileAbortController = useRef<AbortController | null>(null);
+  const sessionRef = useRef<Session | null>(null);
+  const profileRef = useRef<SignedInProfile | null>(null);
 
-  const refreshProfile = useCallback(async (token?: string) => {
-    const accessToken = token ?? session?.access_token;
-    if (!accessToken) {
-      setProfile(null);
-      return null;
-    }
-
-    setProfileLoading(true);
-    setProfileError(null);
-    try {
-      const response = await fetch("/api/me", {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        cache: "no-store",
-      });
-      const body = (await response.json()) as {
-        profile?: SignedInProfile;
-        error?: string;
-      };
-      if (!response.ok || !body.profile) {
+  const refreshProfile = useCallback(
+    async (token?: string) => {
+      const accessToken = token ?? sessionRef.current?.access_token;
+      if (!accessToken) {
+        profileRequestId.current += 1;
+        profileAbortController.current?.abort();
+        profileAbortController.current = null;
+        profileRef.current = null;
         setProfile(null);
-        setProfileError(body.error ?? "Your account could not be loaded.");
+        setProfileError(null);
+        setProfileLoading(false);
         return null;
       }
-      setProfile(body.profile);
-      return body.profile;
-    } catch {
-      setProfile(null);
-      setProfileError("Could not reach CampusConnect. Check your connection.");
-      return null;
-    } finally {
-      setProfileLoading(false);
-    }
-  }, [session?.access_token]);
+
+      profileAbortController.current?.abort();
+      const controller = new AbortController();
+      profileAbortController.current = controller;
+      const requestId = ++profileRequestId.current;
+      setProfileLoading(true);
+      setProfileError(null);
+      try {
+        const response = await fetch("/api/me", {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        const body = (await response.json()) as {
+          profile?: SignedInProfile;
+          error?: string;
+        };
+        if (requestId !== profileRequestId.current) return null;
+        if (!response.ok || !body.profile) {
+          profileRef.current = null;
+          setProfile(null);
+          setProfileError(body.error ?? "Your account could not be loaded.");
+          return null;
+        }
+        profileRef.current = body.profile;
+        setProfile(body.profile);
+        return body.profile;
+      } catch {
+        if (requestId !== profileRequestId.current) return null;
+        profileRef.current = null;
+        setProfile(null);
+        setProfileError("Could not reach CampusConnect. Check your connection.");
+        return null;
+      } finally {
+        if (requestId === profileRequestId.current) {
+          profileAbortController.current = null;
+          setProfileLoading(false);
+        }
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     const supabase = getSupabaseBrowserClient();
+    let active = true;
+    let authEventVersion = 0;
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      authEventVersion += 1;
+      const currentUserId = sessionRef.current?.user.id;
+      const nextUserId = nextSession?.user.id;
+      if (currentUserId && currentUserId === nextUserId) {
+        sessionRef.current = nextSession;
+        setSession(nextSession);
+        if (!profileRef.current && !profileAbortController.current) {
+          setProfileLoading(true);
+          setProfileRefreshKey((current) => current + 1);
+        }
+        return;
+      }
+
+      profileRequestId.current += 1;
+      profileAbortController.current?.abort();
+      profileAbortController.current = null;
+      sessionRef.current = nextSession;
       setSession(nextSession);
       setProfileLoading(Boolean(nextSession));
+      if (profileRef.current?.id !== nextUserId) {
+        profileRef.current = null;
+        setProfile(null);
+      }
       if (!nextSession) {
+        profileRef.current = null;
         setProfile(null);
         setProfileError(null);
       }
     });
 
+    const initialAuthEventVersion = authEventVersion;
     void supabase.auth.getSession().then(({ data, error }) => {
-      if (!error) {
+      if (
+        active &&
+        !error &&
+        authEventVersion === initialAuthEventVersion
+      ) {
+        profileRequestId.current += 1;
+        profileAbortController.current?.abort();
+        profileAbortController.current = null;
+        sessionRef.current = data.session;
         setSession(data.session);
         setProfileLoading(Boolean(data.session));
       }
-      setAuthReady(true);
+      if (active) setAuthReady(true);
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      active = false;
+      profileRequestId.current += 1;
+      profileAbortController.current?.abort();
+      profileAbortController.current = null;
+      subscription.unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
     if (session?.access_token) {
+      if (profileRef.current?.id === session.user.id) return;
       const timer = window.setTimeout(
         () => void refreshProfile(session.access_token),
         0,
@@ -106,13 +174,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const timer = window.setTimeout(() => setProfileLoading(false), 0);
       return () => window.clearTimeout(timer);
     }
-  }, [authReady, refreshProfile, session?.access_token]);
+  }, [
+    authReady,
+    profileRefreshKey,
+    refreshProfile,
+    session?.access_token,
+    session?.user.id,
+  ]);
 
   const signOut = useCallback(async () => {
     const { error } = await getSupabaseBrowserClient().auth.signOut();
     if (error) throw error;
-    setSession(null);
-    setProfile(null);
   }, []);
 
   const value = useMemo(
