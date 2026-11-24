@@ -12,21 +12,6 @@ type AuthFormProps = {
   mode: "login" | "register" | "admin";
 };
 
-async function loadProfile(accessToken: string) {
-  const response = await fetch("/api/me", {
-    headers: { Authorization: `Bearer ${accessToken}` },
-    cache: "no-store",
-  });
-  const body = (await response.json()) as {
-    profile?: { role: string };
-    error?: string;
-  };
-  if (!response.ok || !body.profile) {
-    throw new Error(body.error ?? "Your account could not be loaded.");
-  }
-  return body.profile;
-}
-
 export function AuthForm({ mode }: AuthFormProps) {
   const router = useRouter();
   const { refreshProfile } = useAuth();
@@ -112,12 +97,21 @@ export function AuthForm({ mode }: AuthFormProps) {
           return;
         }
         if (photoWarning) {
-          await refreshProfile(data.session.access_token);
+          const profile = await refreshProfile(data.session.access_token);
+          if (!profile) {
+            throw new Error(
+              "Your account was created, but its profile could not be loaded. Please sign in again.",
+            );
+          }
           setNotice(photoWarning.trim());
           return;
         }
-        const profile = await loadProfile(data.session.access_token);
-        await refreshProfile(data.session.access_token);
+        const profile = await refreshProfile(data.session.access_token);
+        if (!profile) {
+          throw new Error(
+            "Your account was created, but its profile could not be loaded. Please sign in again.",
+          );
+        }
         router.replace(
           profile.role === "ADMIN" || profile.role === "SUPER_ADMIN"
             ? "/admin"
@@ -136,7 +130,10 @@ export function AuthForm({ mode }: AuthFormProps) {
         throw new Error("Supabase did not create an active session.");
       }
 
-      const profile = await loadProfile(data.session.access_token);
+      const profile = await refreshProfile(data.session.access_token);
+      if (!profile) {
+        throw new Error("Your account profile could not be loaded. Please try again.");
+      }
       if (
         isAdminLogin &&
         profile.role !== "ADMIN" &&
@@ -149,7 +146,6 @@ export function AuthForm({ mode }: AuthFormProps) {
         );
       }
 
-      await refreshProfile(data.session.access_token);
       router.replace(
         profile.role === "ADMIN" || profile.role === "SUPER_ADMIN"
           ? "/admin"

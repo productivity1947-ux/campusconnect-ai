@@ -40,21 +40,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profileRefreshKey, setProfileRefreshKey] = useState(0);
   const profileRequestId = useRef(0);
   const profileAbortController = useRef<AbortController | null>(null);
+  const profileRequest = useRef<{
+    accessToken: string;
+    promise: Promise<SignedInProfile | null>;
+  } | null>(null);
   const sessionRef = useRef<Session | null>(null);
   const profileRef = useRef<SignedInProfile | null>(null);
 
   const refreshProfile = useCallback(
-    async (token?: string) => {
+    (token?: string) => {
       const accessToken = token ?? sessionRef.current?.access_token;
       if (!accessToken) {
         profileRequestId.current += 1;
         profileAbortController.current?.abort();
         profileAbortController.current = null;
+        profileRequest.current = null;
         profileRef.current = null;
         setProfile(null);
         setProfileError(null);
         setProfileLoading(false);
-        return null;
+        return Promise.resolve(null);
+      }
+
+      if (profileRequest.current?.accessToken === accessToken) {
+        return profileRequest.current.promise;
       }
 
       profileAbortController.current?.abort();
@@ -63,38 +72,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const requestId = ++profileRequestId.current;
       setProfileLoading(true);
       setProfileError(null);
-      try {
-        const response = await fetch("/api/me", {
-          headers: { Authorization: `Bearer ${accessToken}` },
-          cache: "no-store",
-          signal: controller.signal,
-        });
-        const body = (await response.json()) as {
-          profile?: SignedInProfile;
-          error?: string;
-        };
-        if (requestId !== profileRequestId.current) return null;
-        if (!response.ok || !body.profile) {
+      const promise = (async () => {
+        try {
+          const response = await fetch("/api/me", {
+            headers: { Authorization: `Bearer ${accessToken}` },
+            cache: "no-store",
+            signal: controller.signal,
+          });
+          const body = (await response.json()) as {
+            profile?: SignedInProfile;
+            error?: string;
+          };
+          if (requestId !== profileRequestId.current) return null;
+          if (!response.ok || !body.profile) {
+            profileRef.current = null;
+            setProfile(null);
+            setProfileError(body.error ?? "Your account could not be loaded.");
+            return null;
+          }
+          profileRef.current = body.profile;
+          setProfile(body.profile);
+          return body.profile;
+        } catch {
+          if (requestId !== profileRequestId.current) return null;
           profileRef.current = null;
           setProfile(null);
-          setProfileError(body.error ?? "Your account could not be loaded.");
+          setProfileError("Could not reach CampusConnect. Check your connection.");
           return null;
+        } finally {
+          if (requestId === profileRequestId.current) {
+            profileAbortController.current = null;
+            profileRequest.current = null;
+            setProfileLoading(false);
+          }
         }
-        profileRef.current = body.profile;
-        setProfile(body.profile);
-        return body.profile;
-      } catch {
-        if (requestId !== profileRequestId.current) return null;
-        profileRef.current = null;
-        setProfile(null);
-        setProfileError("Could not reach CampusConnect. Check your connection.");
-        return null;
-      } finally {
-        if (requestId === profileRequestId.current) {
-          profileAbortController.current = null;
-          setProfileLoading(false);
-        }
-      }
+      })();
+      profileRequest.current = { accessToken, promise };
+      return promise;
     },
     [],
   );
@@ -122,6 +136,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       profileRequestId.current += 1;
       profileAbortController.current?.abort();
       profileAbortController.current = null;
+      profileRequest.current = null;
       sessionRef.current = nextSession;
       setSession(nextSession);
       setProfileLoading(Boolean(nextSession));
@@ -146,6 +161,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         profileRequestId.current += 1;
         profileAbortController.current?.abort();
         profileAbortController.current = null;
+        profileRequest.current = null;
         sessionRef.current = data.session;
         setSession(data.session);
         setProfileLoading(Boolean(data.session));
@@ -158,6 +174,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       profileRequestId.current += 1;
       profileAbortController.current?.abort();
       profileAbortController.current = null;
+      profileRequest.current = null;
       subscription.unsubscribe();
     };
   }, []);
